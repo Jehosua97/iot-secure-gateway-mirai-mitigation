@@ -20,7 +20,7 @@ Vagrant.configure("2") do |config|
     # WAN simulated (external attacker network)
     fw.vm.network "private_network", ip: "192.168.56.2"
 
-    # Default NAT interface (eth0) is automatically created
+    # Default NAT interface (enp0s3) is automatically created
     # This gives real Internet access to the gateway.
 
     fw.vm.provider "virtualbox" do |vb|
@@ -46,9 +46,9 @@ Vagrant.configure("2") do |config|
       define IOT_NET = 10.20.0.0/24
       define WAN_SIM_NET = 192.168.56.0/24
 
-      define WAN_IF = "eth0"   # NAT to real internet
-      define IOT_IF = "eth1"   # IoT LAN
-      define EXT_IF = "eth2"   # Simulated WAN (attacker)
+      define WAN_IF = "enp0s3"   # NAT to real internet
+      define IOT_IF = "enp0s8"   # IoT LAN
+      define EXT_IF = "enp0s9"   # Simulated WAN (attacker)
 
       table inet filter {
         chain input {
@@ -116,7 +116,7 @@ Vagrant.configure("2") do |config|
       apt-get install -y curl dnsutils netcat-traditional
 
       # Route through firewall
-      ip route replace default via 10.20.0.1 dev eth1 || true
+      ip route replace default via 10.20.0.1 dev enp0s8 || true
 
       echo "IoT VM ready."
       echo "Test: curl https://example.com"
@@ -143,7 +143,7 @@ Vagrant.configure("2") do |config|
       apt-get install -y nmap netcat-traditional
 
       # Optional route through firewall simulated WAN
-      ip route replace default via 192.168.56.2 dev eth1 || true
+      ip route replace default via 192.168.56.2 dev enp0s8 || true
 
       echo "Attacker VM ready."
       echo "Test: nmap -p 22,23,2323 10.20.0.10"

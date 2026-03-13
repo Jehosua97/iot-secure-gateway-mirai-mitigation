@@ -61,7 +61,7 @@ function Invoke-RemoteScript {
     )
 
     $remoteTempPath = "/tmp/" + [System.IO.Path]::GetFileName($ScriptPath)
-    $normalizeCommand = "tr -d '\r' < $(Quote-BashArgument $ScriptPath) > $(Quote-BashArgument $remoteTempPath)"
+    $normalizeCommand = 'perl -pe ''s/\r$//'' ' + (Quote-BashArgument $ScriptPath) + ' > ' + (Quote-BashArgument $remoteTempPath)
     $chmodCommand = "chmod +x $(Quote-BashArgument $remoteTempPath)"
     $runCommand = Join-BashCommand (@("bash", $remoteTempPath) + $Arguments)
     $command = "bash -lc " + (Quote-BashArgument "$normalizeCommand && $chmodCommand && $runCommand")

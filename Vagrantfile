@@ -4,6 +4,10 @@ Vagrant.configure("2") do |config|
   config.vm.box = "ubuntu/jammy64"
   config.ssh.insert_key = false
 
+  def normalized_shell(script_path)
+    "perl -pe 's/\\r$//' /vagrant/#{script_path} | bash"
+  end
+
   # Networks:
   # IoT LAN:        10.20.0.0/24
   # WAN Simulated:  192.168.56.0/24
@@ -29,7 +33,7 @@ Vagrant.configure("2") do |config|
       vb.cpus = 1
     end
 
-    fw.vm.provision "shell", path: "scripts/provision-fw.sh"
+    fw.vm.provision "shell", inline: normalized_shell("scripts/provision-fw.sh")
   end
 
 
@@ -46,7 +50,7 @@ Vagrant.configure("2") do |config|
       vb.cpus = 1
     end
 
-    iot.vm.provision "shell", path: "scripts/provision-iot.sh"
+    iot.vm.provision "shell", inline: normalized_shell("scripts/provision-iot.sh")
   end
 
 
@@ -63,7 +67,7 @@ Vagrant.configure("2") do |config|
       vb.cpus = 1
     end
 
-    atk.vm.provision "shell", path: "scripts/provision-atk.sh"
+    atk.vm.provision "shell", inline: normalized_shell("scripts/provision-atk.sh")
   end
 
 end

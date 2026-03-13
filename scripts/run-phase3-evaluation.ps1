@@ -43,7 +43,8 @@ function Invoke-VagrantCommand {
 
 function Quote-BashArgument {
     param([string]$Value)
-    return "'" + ($Value -replace "'", "'\"'\"'") + "'"
+    $escapedValue = $Value -replace "'", "'\''"
+    return "'$escapedValue'"
 }
 
 function Join-BashCommand {
@@ -311,7 +312,7 @@ Write-Utf8File -Path (Join-Path $artifactDir "fw-counters.txt") -Content $fwCoun
 Write-Utf8File -Path (Join-Path $artifactDir "fw-counters.json") -Content $afterRulesetText
 
 $ipForwardPassed = $fwSnapshot -match "== ip_forward ==\s+1\b"
-$rulesLoadedPassed = $fwSnapshot -match "table inet filter" -and $fwSnapshot -match "comment \"wan_to_iot_drop\""
+$rulesLoadedPassed = $fwSnapshot -match "table inet filter" -and $fwSnapshot -match 'comment "wan_to_iot_drop"'
 $iotRoutePassed = $iotRoute -match "default via 10\.20\.0\.1"
 $atkRoutePassed = $atkRoute -match "via 192\.168\.56\.2"
 $dnsPassed = $dnsOutput -match "(?m)^\d{1,3}(?:\.\d{1,3}){3}$"

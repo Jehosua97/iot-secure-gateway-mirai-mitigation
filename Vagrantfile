@@ -29,71 +29,7 @@ Vagrant.configure("2") do |config|
       vb.cpus = 1
     end
 
-    fw.vm.provision "shell", inline: <<-SHELL
-      set -eux
-
-      apt-get update -y
-      apt-get install -y nftables tcpdump
-
-      # Enable IP forwarding
-      echo 'net.ipv4.ip_forward=1' > /etc/sysctl.d/99-ipforward.conf
-      sysctl -p /etc/sysctl.d/99-ipforward.conf
-
-      # Configure nftables
-      cat <<'EOF' > /etc/nftables.conf
-      flush ruleset
-
-      define IOT_NET = 10.20.0.0/24
-      define WAN_SIM_NET = 192.168.56.0/24
-
-      define WAN_IF = "enp0s3"   # NAT to real internet
-      define IOT_IF = "enp0s8"   # IoT LAN
-      define EXT_IF = "enp0s9"   # Simulated WAN (attacker)
-
-      table inet filter {
-        chain input {
-          type filter hook input priority 0;
-          policy drop;
-
-          iif lo accept
-          ct state established,related accept
-
-          # Allow ping from lab networks
-          iif $IOT_IF icmp type echo-request accept
-          iif $EXT_IF icmp type echo-request accept
-
-          # Allow SSH to firewall from WAN simulated only
-          iif $EXT_IF ip saddr $WAN_SIM_NET tcp dport 22 accept
-        }
-
-        chain forward {
-          type filter hook forward priority 0;
-          policy drop;
-
-          ct state established,related accept
-
-          # BLOCK any traffic from outside -> IoT (Mirai mitigation)
-          iif $EXT_IF oif $IOT_IF drop
-
-          # Allow IoT -> Internet only for required services
-          iif $IOT_IF oif $WAN_IF udp dport {53,123} accept
-          iif $IOT_IF oif $WAN_IF tcp dport {443} accept
-        }
-      }
-
-      table ip nat {
-        chain postrouting {
-          type nat hook postrouting priority 100;
-          oif $WAN_IF ip saddr $IOT_NET masquerade
-        }
-      }
-      EOF
-
-      systemctl enable nftables
-      systemctl restart nftables
-
-      nft list ruleset
-    SHELL
+    fw.vm.provision "shell", path: "scripts/provision-fw.sh"
   end
 
 
@@ -110,17 +46,7 @@ Vagrant.configure("2") do |config|
       vb.cpus = 1
     end
 
-    iot.vm.provision "shell", inline: <<-SHELL
-      set -eux
-      apt-get update -y
-      apt-get install -y curl dnsutils netcat-traditional
-
-      # Route through firewall
-      ip route replace default via 10.20.0.1 dev enp0s8 || true
-
-      echo "IoT VM ready."
-      echo "Test: curl https://example.com"
-    SHELL
+    iot.vm.provision "shell", path: "scripts/provision-iot.sh"
   end
 
 
@@ -137,17 +63,7 @@ Vagrant.configure("2") do |config|
       vb.cpus = 1
     end
 
-    atk.vm.provision "shell", inline: <<-SHELL
-      set -eux
-      apt-get update -y
-      apt-get install -y nmap netcat-traditional
-
-      # Optional route through firewall simulated WAN
-      ip route replace default via 192.168.56.2 dev enp0s8 || true
-
-      echo "Attacker VM ready."
-      echo "Test: nmap -p 22,23,2323 10.20.0.10"
-    SHELL
+    atk.vm.provision "shell", path: "scripts/provision-atk.sh"
   end
 
 end

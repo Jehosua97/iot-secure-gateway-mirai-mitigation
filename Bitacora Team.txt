@@ -177,3 +177,45 @@ Pending:
 END OF CURRENT SESSION
 
 ---
+
+
+
+
+
+La fase 3 quedó implementada dentro del proyecto Vagrant. Separé la provisión por rol en Vagrantfile (line 3), moviendo la lógica a scripts dedicados para que el lab sea más reproducible y menos frágil con nombres de interfaz. En el firewall, provision-fw.sh (line 6) ahora detecta interfaces por IP, habilita ip_forward, carga nftables con contadores y logs, y deja evidencia en reglas de drop y NAT.
+
+También añadí el runner de evaluación run-phase3-evaluation.ps1 (line 1), más helpers remotos en scripts/remote/. Ese runner hace las pruebas clave de la rúbrica: rutas y reglas cargadas, DNS/HTTPS permitidos, HTTP no autorizado bloqueado, escaneo Mirai-style bloqueado, burst de ataques sin conexiones exitosas y lectura de contadores del firewall. Además genera artifacts\phase3\<timestamp>\summary.json y summary.md, que ya salen con secciones de Accuracy, Performance y Scalability listas para apoyar el reporte. Actualicé también README.md (line 1) para documentar el flujo.
+
+Validé la sintaxis del runner PowerShell, pero no ejecuté vagrant up/provision ni las pruebas completas desde aquí, así que la validación funcional final todavía hay que correrla en tu host.
+
+Recomendado para evidencia limpia: vagrant destroy -f, luego vagrant up, y después powershell -ExecutionPolicy Bypass -File .\scripts\run-phase3-evaluation.ps1 -Provision.
+Para el reporte, usa summary.md como base del texto y apóyalo con atk-scan.txt, iot-https-benchmark.txt y fw-counters.txt como evidencia técnica.
+
+
+En esta fase 3 dejé el proyecto listo para performance and testing de forma reproducible. Reorganicé el lab Vagrant para que cada VM tenga su propio script de provisión, endurecí el firewall para detectar interfaces de forma robusta y añadí evidencia medible con nftables: contadores, logs de tráfico bloqueado y reglas claras de NAT/forwarding. Además, implementé un runner automático en PowerShell que ejecuta las pruebas desde el host, recoge resultados de las 3 VMs y genera artifacts listos para el reporte, incluyendo un summary.md y un summary.json.
+
+Lo que ahora mide el proyecto es:
+
+Exactitud: que ip_forward esté activo, que las reglas estén cargadas, que el IoT enrute por el firewall y que el atacante solo llegue al IoT a través del gateway.
+Funcionalidad permitida: DNS y HTTPS desde el IoT.
+Bloqueos de seguridad: HTTP no autorizado desde el IoT, escaneo Mirai-style desde atk y ráfagas repetidas de intentos hacia Telnet.
+Evidencia de enforcement: contadores del firewall para drops WAN->IoT, tráfico HTTPS permitido y paquetes NAT.
+Para correrlo:
+
+vagrant up
+vagrant provision
+powershell -ExecutionPolicy Bypass -File .\scripts\run-phase3-evaluation.ps1 -Provision
+Si quieres una corrida completamente limpia para el reporte:
+
+vagrant destroy -f
+vagrant up
+powershell -ExecutionPolicy Bypass -File .\scripts\run-phase3-evaluation.ps1 -Provision
+Los resultados te quedan en:
+
+artifacts\phase3\<timestamp>\
+Ahí vas a encontrar:
+
+summary.md: resumen listo para usar en el informe
+summary.json: resultados estructurados
+logs crudos como fw-snapshot.txt, atk-scan.txt, iot-https-benchmark.txt, fw-counters.txt
+Si quieres, el siguiente paso natural es que te redacte el texto de la sección “Performance and Testing” del reporte usando exactamente lo que genera esta fase.

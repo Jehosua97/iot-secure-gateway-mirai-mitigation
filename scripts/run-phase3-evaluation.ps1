@@ -60,8 +60,12 @@ function Invoke-RemoteScript {
         [switch]$Sudo
     )
 
-    $parts = @("bash", $ScriptPath) + $Arguments
-    $command = Join-BashCommand $parts
+    $remoteTempPath = "/tmp/" + [System.IO.Path]::GetFileName($ScriptPath)
+    $normalizeCommand = "tr -d '\r' < $(Quote-BashArgument $ScriptPath) > $(Quote-BashArgument $remoteTempPath)"
+    $chmodCommand = "chmod +x $(Quote-BashArgument $remoteTempPath)"
+    $runCommand = Join-BashCommand (@("bash", $remoteTempPath) + $Arguments)
+    $command = "bash -lc " + (Quote-BashArgument "$normalizeCommand && $chmodCommand && $runCommand")
+
     if ($Sudo) {
         $command = "sudo $command"
     }

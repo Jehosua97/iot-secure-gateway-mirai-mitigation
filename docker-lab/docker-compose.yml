@@ -1,0 +1,81 @@
+services:
+  fw:
+    build:
+      context: ./fw
+    container_name: iot-fw
+    hostname: fw-gateway
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    sysctls:
+      net.ipv4.ip_forward: "1"
+    networks:
+      iot_net:
+        ipv4_address: 10.20.0.1
+      wan_net:
+        ipv4_address: 192.168.56.2
+    environment:
+      IOT_NET: 10.20.0.0/24
+      IOT_IP: 10.20.0.1
+      WAN_SIM_NET: 192.168.56.0/24
+      WAN_SIM_IP: 192.168.56.2
+    volumes:
+      - ./results:/results
+    restart: unless-stopped
+
+  iot:
+    build:
+      context: ./iot
+    container_name: iot-device
+    hostname: iot-device
+    cap_add:
+      - NET_ADMIN
+    dns:
+      - 1.1.1.1
+    depends_on:
+      - fw
+    networks:
+      iot_net:
+        ipv4_address: 10.20.0.10
+    environment:
+      DEVICE_IP: 10.20.0.10
+      FIREWALL_IP: 10.20.0.1
+    volumes:
+      - ./results:/results
+    restart: unless-stopped
+
+  atk:
+    build:
+      context: ./atk
+    container_name: attacker-outside
+    hostname: attacker-outside
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    depends_on:
+      - fw
+    networks:
+      wan_net:
+        ipv4_address: 192.168.56.10
+    environment:
+      ATTACKER_IP: 192.168.56.10
+      FIREWALL_WAN_IP: 192.168.56.2
+      IOT_NET: 10.20.0.0/24
+    volumes:
+      - ./results:/results
+    restart: unless-stopped
+
+networks:
+  iot_net:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.20.0.0/24
+          gateway: 10.20.0.254
+  wan_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.56.0/24
+          gateway: 192.168.56.1

@@ -20,76 +20,35 @@ docker compose ps
 
 Expected result: all three services show an `Up` status.
 
-## 3. Access the Firewall Container
+## 3. Verify IoT Services and DNS
 
-Open a shell inside the firewall container.
-
-```bash
-docker compose exec fw bash
-```
-
-The firewall acts as the routing and filtering boundary between the WAN and the IoT network.
-
-Exit the shell when finished:
+Confirm the controlled listeners and DNS configuration inside the IoT container.
 
 ```bash
-exit
+docker compose exec iot ss -lntp
+docker compose exec iot cat /etc/resolv.conf
 ```
 
-## 4. Access the IoT Container
+Expected result:
 
-Open a shell inside the simulated IoT device.
+- listeners on TCP `23` and `2323`
+- `nameserver 1.1.1.1` in `/etc/resolv.conf`
+
+## 4. Reset and Inspect Firewall Counters
+
+Reset counters before a clean measurement, then inspect the forward chain.
 
 ```bash
-docker compose exec iot bash
+docker compose exec fw nft reset counters
+docker compose exec fw nft list chain inet filter forward
 ```
 
-Verify its IP address:
-
-```bash
-ip a
-```
-
-Expected IP address:
-
-```text
-10.20.0.10
-```
-
-Exit the shell when finished:
-
-```bash
-exit
-```
-
-## 5. Access the Attacker Container
-
-Open a shell inside the attacker container.
-
-```bash
-docker compose exec atk bash
-```
-
-Verify its IP address:
-
-```bash
-ip a
-```
-
-Expected IP address:
-
-```text
-192.168.56.10
-```
-
-This container simulates an external host attempting to attack the IoT device.
-
-## 6. Perform Mirai-Style Port Scanning
+## 5. Perform Mirai-Style Port Scanning
 
 From the attacker container, simulate Mirai-style scanning of common IoT service ports.
 
 ```bash
-docker compose exec atk nmap -p 22,23,2323 10.20.0.10
+docker compose exec atk nmap -Pn -p 22,23,2323 10.20.0.10
 ```
 
 Expected result:
@@ -101,51 +60,59 @@ PORT     STATE    SERVICE
 2323/tcp filtered telnet-alt
 ```
 
-This confirms that the firewall blocks inbound scanning attempts from the attacker network.
+## 6. Attempt Direct Service Access
 
-## 7. Attempt Direct Service Access
-
-Attempt to connect directly to the IoT device services from the attacker.
+Attempt to connect directly to the IoT listeners from the attacker.
 
 ```bash
-docker compose exec atk nc -vz 10.20.0.10 23
-docker compose exec atk nc -vz 10.20.0.10 22
+docker compose exec atk nc -vz -w 5 10.20.0.10 23
+docker compose exec atk nc -vz -w 5 10.20.0.10 2323
 ```
 
 Expected behavior: the connections time out or are filtered.
 
-## 8. Monitor Traffic on the Firewall
+## 7. Observe the Firewall in Real Time
 
-Observe packets on the firewall in real time.
-
-```bash
-docker compose exec fw tcpdump -i any host 10.20.0.10
-```
-
-While `tcpdump` is running, repeat the scan from step 6.
-
-## 9. Inspect Firewall Rules
-
-Verify that the nftables rules are active.
+Packet view:
 
 ```bash
-docker compose exec fw nft list ruleset
+docker compose exec fw tcpdump -n -i any host 10.20.0.10
 ```
 
-The `forward` chain should show a default `drop` policy and explicit allow rules for outbound DNS, NTP, and HTTPS traffic.
-
-## 10. Test Outbound IoT Connectivity
-
-From the IoT container, test allowed outbound HTTPS access.
+Counter view:
 
 ```bash
-docker compose exec iot curl https://example.com
+docker compose exec fw watch -n 1 nft list chain inet filter forward
 ```
 
-Then test a blocked outbound Telnet connection:
+## 8. Test Allowed Outbound Traffic
+
+DNS through the firewall path:
+
+```bash
+docker compose exec iot dig @1.1.1.1 +time=2 +tries=1 example.com
+```
+
+HTTPS timing:
+
+```bash
+docker compose exec iot sh -lc 'for i in 1 2 3 4 5; do curl -sS -o /dev/null -w "run=$i time_namelookup=%{time_namelookup} time_connect=%{time_connect} time_appconnect=%{time_appconnect} time_total=%{time_total}\n" https://example.com; done'
+```
+
+## 9. Test Blocked Outbound Traffic
 
 ```bash
 docker compose exec iot nc -vz -w 5 1.1.1.1 23
 ```
 
-Expected result: HTTPS succeeds while the Telnet attempt fails.
+Expected result: the Telnet attempt fails.
+
+## 10. Run the Automated Phase 3 Suite
+
+From PowerShell in the `docker-lab` directory, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\run-phase3.ps1
+```
+
+This creates a timestamped evidence folder under `docker-lab/results/`.

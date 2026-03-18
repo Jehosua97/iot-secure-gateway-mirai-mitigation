@@ -16,6 +16,7 @@ fi
 ip route replace "${IOT_NET}" via "${FIREWALL_WAN_IP}" dev "${WAN_IF}"
 
 mkdir -p /results
+ip -br addr >/results/atk-ip-addr-startup.txt
 ip route >/results/atk-routes-startup.txt
 
 echo "Attacker container ready."

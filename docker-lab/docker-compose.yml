@@ -40,6 +40,7 @@ services:
     environment:
       DEVICE_IP: 10.20.0.10
       FIREWALL_IP: 10.20.0.1
+      DNS_SERVER: 1.1.1.1
     volumes:
       - ./results:/results
     restart: unless-stopped

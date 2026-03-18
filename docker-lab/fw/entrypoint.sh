@@ -34,32 +34,32 @@ table inet filter {
     type filter hook input priority 0;
     policy drop;
 
-    iifname "lo" accept
-    ct state established,related accept
+    iifname "lo" counter accept comment "allow loopback"
+    ct state established,related counter accept comment "allow established input"
 
-    iifname \$IOT_IF icmp type echo-request accept
-    iifname \$EXT_IF icmp type echo-request accept
+    iifname \$IOT_IF icmp type echo-request counter accept comment "allow iot ping"
+    iifname \$EXT_IF icmp type echo-request counter accept comment "allow wan ping"
 
-    iifname \$EXT_IF ip saddr \$WAN_SIM_NET tcp dport 22 accept
+    iifname \$EXT_IF ip saddr \$WAN_SIM_NET tcp dport 22 counter accept comment "allow ssh from wan lab"
   }
 
   chain forward {
     type filter hook forward priority 0;
     policy drop;
 
-    ct state established,related accept
+    ct state established,related counter accept comment "allow established forward"
 
-    iifname \$EXT_IF oifname \$IOT_IF drop
+    iifname \$EXT_IF oifname \$IOT_IF counter drop comment "block wan to iot"
 
-    iifname \$IOT_IF oifname \$EXT_IF udp dport {53,123} accept
-    iifname \$IOT_IF oifname \$EXT_IF tcp dport {443} accept
+    iifname \$IOT_IF oifname \$EXT_IF udp dport {53,123} counter accept comment "allow iot dns ntp"
+    iifname \$IOT_IF oifname \$EXT_IF tcp dport 443 counter accept comment "allow iot https"
   }
 }
 
 table ip nat {
   chain postrouting {
     type nat hook postrouting priority 100;
-    oifname "${EXT_IF}" ip saddr ${IOT_NET} masquerade
+    oifname "${EXT_IF}" ip saddr ${IOT_NET} counter masquerade comment "nat iot outbound"
   }
 }
 EOF
@@ -68,7 +68,11 @@ sysctl -w net.ipv4.ip_forward=1 >/dev/null
 nft -f /etc/nftables.conf
 
 mkdir -p /results
+ip -br addr >/results/fw-ip-addr-startup.txt
+ip route >/results/fw-routes-startup.txt
+cat /proc/sys/net/ipv4/ip_forward >/results/fw-ip-forward-startup.txt
 nft list ruleset >/results/fw-ruleset-startup.txt
+nft list chain inet filter forward >/results/fw-forward-chain-startup.txt
 
 echo "Firewall container ready."
 echo "IoT interface: ${IOT_IF}"

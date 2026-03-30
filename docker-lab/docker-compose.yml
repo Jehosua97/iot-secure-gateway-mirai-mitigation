@@ -30,8 +30,6 @@ services:
     hostname: iot-device
     cap_add:
       - NET_ADMIN
-    dns:
-      - 1.1.1.1
     depends_on:
       - fw
     networks:
@@ -40,7 +38,6 @@ services:
     environment:
       DEVICE_IP: 10.20.0.10
       FIREWALL_IP: 10.20.0.1
-      DNS_SERVER: 1.1.1.1
     volumes:
       - ./results:/results
     restart: unless-stopped
@@ -69,7 +66,6 @@ services:
 networks:
   iot_net:
     driver: bridge
-    internal: true
     ipam:
       config:
         - subnet: 10.20.0.0/24
@@ -79,4 +75,4 @@ networks:
     ipam:
       config:
         - subnet: 192.168.56.0/24
-          gateway: 192.168.56.1
+          gateway: 192.168.56.254

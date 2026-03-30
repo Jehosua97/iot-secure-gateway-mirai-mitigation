@@ -3,22 +3,17 @@ table inet filter {
 		type filter hook input priority filter; policy drop;
 		iifname "lo" counter packets 0 bytes 0 accept comment "allow loopback"
 		ct state established,related counter packets 0 bytes 0 accept comment "allow established input"
-		iifname "eth1" icmp type echo-request counter packets 0 bytes 0 accept comment "allow iot ping"
-		iifname "eth0" icmp type echo-request counter packets 0 bytes 0 accept comment "allow wan ping"
-		iifname "eth0" ip saddr 192.168.56.0/24 tcp dport 22 counter packets 0 bytes 0 accept comment "allow ssh from wan lab"
+		iifname "eth0" icmp type echo-request counter packets 0 bytes 0 accept comment "allow iot ping"
+		iifname "eth1" icmp type echo-request counter packets 0 bytes 0 accept comment "allow wan ping"
+		iifname "eth1" ip saddr 192.168.56.0/24 tcp dport 22 counter packets 0 bytes 0 drop comment "block ssh to firewall from wan lab"
 	}
 
 	chain forward {
 		type filter hook forward priority filter; policy drop;
 		ct state established,related counter packets 0 bytes 0 accept comment "allow established forward"
-		iifname "eth0" oifname "eth1" counter packets 0 bytes 0 drop comment "block wan to iot"
-		iifname "eth1" oifname "eth0" udp dport { 53, 123 } counter packets 0 bytes 0 accept comment "allow iot dns ntp"
-		iifname "eth1" oifname "eth0" tcp dport 443 counter packets 0 bytes 0 accept comment "allow iot https"
-	}
-}
-table ip nat {
-	chain postrouting {
-		type nat hook postrouting priority srcnat; policy accept;
-		oifname "eth0" ip saddr 10.20.0.0/24 counter packets 0 bytes 0 masquerade comment "nat iot outbound"
+		iifname "eth1" oifname "eth0" tcp dport { 22, 23, 2323 } counter packets 0 bytes 0 drop comment "block wan ssh telnet to iot"
+		iifname "eth1" oifname "eth0" counter packets 0 bytes 0 drop comment "block other wan to iot"
+		iifname "eth0" oifname "eth1" tcp dport { 22, 23, 2323 } counter packets 0 bytes 0 drop comment "block iot ssh telnet outbound"
+		iifname "eth0" oifname "eth1" tcp dport 443 counter packets 0 bytes 0 accept comment "allow iot https to wan"
 	}
 }

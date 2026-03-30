@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     netcat-traditional \
     nmap \
     procps \
+    socat \
     tcpdump \
     && rm -rf /var/lib/apt/lists/*
 

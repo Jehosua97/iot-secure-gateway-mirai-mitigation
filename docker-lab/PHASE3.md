@@ -5,7 +5,8 @@ This guide extends the basic Docker lab with repeatable Phase 3 testing focused 
 ## What changed for Phase 3
 
 - The firewall rules use nftables `counter` actions so blocked and allowed packets can be measured directly.
-- The IoT container exposes controlled listeners on TCP `23` and `2323` so scans are targeting real services.
+- The IoT container exposes controlled listeners on TCP `22`, `23`, and `2323` so scans are targeting real services.
+- The firewall now has a separate `internet_net` interface so outbound traffic behaves like the Vagrant lab NAT interface.
 - A PowerShell automation script saves test evidence into `docker-lab/results/<timestamp>/`.
 
 ## 1. Start or rebuild the lab
@@ -21,7 +22,7 @@ docker compose up --build -d
 docker compose exec iot ss -lntp
 ```
 
-Expected result: listeners appear on `:23` and `:2323`.
+Expected result: listeners appear on `:22`, `:23`, and `:2323`.
 
 ## 3. Reset firewall counters before testing
 
@@ -70,6 +71,7 @@ docker compose exec atk nmap -Pn -p 22,23,2323 10.20.0.10
 Direct connection attempts from attacker:
 
 ```powershell
+docker compose exec atk nc -vz -w 5 10.20.0.10 22
 docker compose exec atk nc -vz -w 5 10.20.0.10 23
 docker compose exec atk nc -vz -w 5 10.20.0.10 2323
 ```
@@ -82,25 +84,28 @@ docker compose exec fw nft list chain inet filter forward
 
 ## 6. Outbound policy tests
 
-DNS test from IoT:
+Verify the IoT route and outbound DNS path:
 
 ```powershell
+docker compose exec iot ip route
 docker compose exec iot dig @1.1.1.1 +time=2 +tries=1 example.com
 ```
 
-Allowed HTTPS test with timing:
+Allowed outbound HTTPS with simple timing:
 
 ```powershell
 docker compose exec iot sh -lc 'for i in 1 2 3 4 5; do curl -sS -o /dev/null -w "run=$i time_namelookup=%{time_namelookup} time_connect=%{time_connect} time_appconnect=%{time_appconnect} time_total=%{time_total}\n" https://example.com; done'
 ```
 
-Blocked outbound Telnet test:
+Blocked outbound services on ports `22`, `23`, and `2323`:
 
 ```powershell
+docker compose exec iot nc -vz -w 5 1.1.1.1 22
 docker compose exec iot nc -vz -w 5 1.1.1.1 23
+docker compose exec iot nc -vz -w 5 1.1.1.1 2323
 ```
 
-Show the firewall counters again:
+Show the firewall forward counters again:
 
 ```powershell
 docker compose exec fw nft list chain inet filter forward
@@ -135,7 +140,7 @@ The script creates a timestamped results folder containing:
 - IoT listener proof
 - inbound attack outputs
 - outbound DNS and HTTPS timing outputs
-- blocked outbound Telnet output
+- blocked outbound 22, 23, and 2323 outputs
 - scalability test output
 - firewall counters before and after each stage
 - container resource snapshots

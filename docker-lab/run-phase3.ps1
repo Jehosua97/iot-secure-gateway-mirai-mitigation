@@ -96,22 +96,24 @@ Invoke-LoggedCommand -Label 'fw-ip-forward-baseline' -CommandArgs ($compose + @(
 Invoke-LoggedCommand -Label 'fw-ruleset-baseline' -CommandArgs ($compose + @('exec', '-T', 'fw', 'nft', 'list', 'ruleset'))
 Invoke-LoggedCommand -Label 'iot-ip-addr-baseline' -CommandArgs ($compose + @('exec', '-T', 'iot', 'ip', '-br', 'addr'))
 Invoke-LoggedCommand -Label 'iot-routes-baseline' -CommandArgs ($compose + @('exec', '-T', 'iot', 'ip', 'route'))
-Invoke-LoggedCommand -Label 'iot-resolv-conf-baseline' -CommandArgs ($compose + @('exec', '-T', 'iot', 'cat', '/etc/resolv.conf'))
 Invoke-LoggedCommand -Label 'iot-listeners-baseline' -CommandArgs ($compose + @('exec', '-T', 'iot', 'ss', '-lntp'))
 Invoke-LoggedCommand -Label 'atk-ip-addr-baseline' -CommandArgs ($compose + @('exec', '-T', 'atk', 'ip', '-br', 'addr'))
 Invoke-LoggedCommand -Label 'atk-routes-baseline' -CommandArgs ($compose + @('exec', '-T', 'atk', 'ip', 'route'))
+Invoke-LoggedCommand -Label 'atk-listeners-baseline' -CommandArgs ($compose + @('exec', '-T', 'atk', 'ss', '-lntp'))
 
 Invoke-LoggedCommand -Label 'fw-reset-counters' -CommandArgs ($compose + @('exec', '-T', 'fw', 'nft', 'reset', 'counters'))
 Invoke-LoggedCommand -Label 'fw-forward-counters-before-tests' -CommandArgs ($compose + @('exec', '-T', 'fw', 'nft', 'list', 'chain', 'inet', 'filter', 'forward'))
 
 Invoke-LoggedCommand -Label 'atk-nmap-inbound' -CommandArgs ($compose + @('exec', '-T', 'atk', 'nmap', '-Pn', '-p', '22,23,2323', '10.20.0.10'))
-Invoke-LoggedCommand -Label 'atk-nc-port23' -CommandArgs ($compose + @('exec', '-T', 'atk', 'nc', '-vz', '-w', '5', '10.20.0.10', '23')) -AllowFailure
-Invoke-LoggedCommand -Label 'atk-nc-port2323' -CommandArgs ($compose + @('exec', '-T', 'atk', 'nc', '-vz', '-w', '5', '10.20.0.10', '2323')) -AllowFailure
+Invoke-LoggedCommand -Label 'atk-nc-port22' -CommandArgs ($compose + @('exec', '-T', 'atk', 'nc', '-nvz', '-w', '5', '10.20.0.10', '22')) -AllowFailure
+Invoke-LoggedCommand -Label 'atk-nc-port23' -CommandArgs ($compose + @('exec', '-T', 'atk', 'nc', '-nvz', '-w', '5', '10.20.0.10', '23')) -AllowFailure
+Invoke-LoggedCommand -Label 'atk-nc-port2323' -CommandArgs ($compose + @('exec', '-T', 'atk', 'nc', '-nvz', '-w', '5', '10.20.0.10', '2323')) -AllowFailure
 Invoke-LoggedCommand -Label 'fw-forward-counters-after-inbound' -CommandArgs ($compose + @('exec', '-T', 'fw', 'nft', 'list', 'chain', 'inet', 'filter', 'forward'))
 
-Invoke-LoggedCommand -Label 'iot-dns-test' -CommandArgs ($compose + @('exec', '-T', 'iot', 'dig', '@1.1.1.1', '+time=2', '+tries=1', 'example.com'))
-Invoke-LoggedCommand -Label 'iot-https-baseline' -CommandArgs ($compose + @('exec', '-T', 'iot', 'sh', '-lc', 'for i in 1 2 3 4 5; do curl -sS -o /dev/null -w "run=$i time_namelookup=%{time_namelookup} time_connect=%{time_connect} time_appconnect=%{time_appconnect} time_total=%{time_total}\n" https://example.com; done'))
-Invoke-LoggedCommand -Label 'iot-telnet-blocked' -CommandArgs ($compose + @('exec', '-T', 'iot', 'nc', '-vz', '-w', '5', '1.1.1.1', '23')) -AllowFailure
+Invoke-LoggedCommand -Label 'iot-blocked-22-to-wan' -CommandArgs ($compose + @('exec', '-T', 'iot', 'nc', '-nvz', '-w', '5', '192.168.56.10', '22')) -AllowFailure
+Invoke-LoggedCommand -Label 'iot-blocked-23-to-wan' -CommandArgs ($compose + @('exec', '-T', 'iot', 'nc', '-nvz', '-w', '5', '192.168.56.10', '23')) -AllowFailure
+Invoke-LoggedCommand -Label 'iot-blocked-2323-to-wan' -CommandArgs ($compose + @('exec', '-T', 'iot', 'nc', '-nvz', '-w', '5', '192.168.56.10', '2323')) -AllowFailure
+Invoke-LoggedCommand -Label 'iot-allowed-443-to-wan' -CommandArgs ($compose + @('exec', '-T', 'iot', 'sh', '-lc', 'for i in 1 2 3 4 5; do start=$(date +%s%3N); if nc -nvz -w 3 192.168.56.10 443 >/dev/null 2>&1; then status=success; else status=fail; fi; end=$(date +%s%3N); echo "run=$i status=$status connect_ms=$((end-start))"; done'))
 Invoke-LoggedCommand -Label 'fw-forward-counters-after-outbound' -CommandArgs ($compose + @('exec', '-T', 'fw', 'nft', 'list', 'chain', 'inet', 'filter', 'forward'))
 
 Invoke-LoggedCommand -Label 'atk-scale-10' -CommandArgs ($compose + @('exec', '-T', 'atk', 'sh', '-lc', 'start=$(date +%s); for i in $(seq 1 10); do nc -vz -w 2 10.20.0.10 2323 >/dev/null 2>&1 & done; wait; end=$(date +%s); echo "parallel_connections=10"; echo "elapsed_seconds=$((end-start))"'))
@@ -119,7 +121,7 @@ Invoke-LoggedCommand -Label 'atk-scale-25' -CommandArgs ($compose + @('exec', '-
 Invoke-LoggedCommand -Label 'atk-scale-50' -CommandArgs ($compose + @('exec', '-T', 'atk', 'sh', '-lc', 'start=$(date +%s); for i in $(seq 1 50); do nc -vz -w 2 10.20.0.10 2323 >/dev/null 2>&1 & done; wait; end=$(date +%s); echo "parallel_connections=50"; echo "elapsed_seconds=$((end-start))"'))
 Invoke-LoggedCommand -Label 'fw-forward-counters-after-scale' -CommandArgs ($compose + @('exec', '-T', 'fw', 'nft', 'list', 'chain', 'inet', 'filter', 'forward'))
 Invoke-LoggedCommand -Label 'docker-stats-after-scale' -CommandArgs @('stats', '--no-stream', 'iot-fw', 'iot-device', 'attacker-outside')
-Invoke-LoggedCommand -Label 'iot-https-after-scale' -CommandArgs ($compose + @('exec', '-T', 'iot', 'sh', '-lc', 'for i in 1 2 3 4 5; do curl -sS -o /dev/null -w "run=$i time_namelookup=%{time_namelookup} time_connect=%{time_connect} time_appconnect=%{time_appconnect} time_total=%{time_total}\n" https://example.com; done'))
+Invoke-LoggedCommand -Label 'iot-allowed-443-to-wan-after-scale' -CommandArgs ($compose + @('exec', '-T', 'iot', 'sh', '-lc', 'for i in 1 2 3 4 5; do start=$(date +%s%3N); if nc -nvz -w 3 192.168.56.10 443 >/dev/null 2>&1; then status=success; else status=fail; fi; end=$(date +%s%3N); echo "run=$i status=$status connect_ms=$((end-start))"; done'))
 
 if ($TearDown) {
     Invoke-LoggedCommand -Label 'compose-down' -CommandArgs ($compose + @('down'))

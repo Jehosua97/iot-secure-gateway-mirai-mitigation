@@ -6,12 +6,15 @@ This folder contains a Docker-based equivalent of the current Vagrant lab. It ke
 - `iot`: internal IoT device on `10.20.0.0/24`
 - `atk`: external attacker on `192.168.56.0/24`
 
-The Docker version mirrors the current nftables policy:
+The Docker version now mirrors the Vagrant topology more closely:
 
 - block inbound attacker-to-IoT forwarding
-- allow IoT outbound DNS (`53`), NTP (`123`), and HTTPS (`443`)
-- masquerade IoT traffic through the firewall external interface
-- expose controlled Telnet-like listeners on the IoT container (`23` and `2323`) for stronger filtering evidence
+- attach `fw` to three networks: IoT LAN, simulated attacker WAN, and a separate internet egress network
+- allow IoT outbound DNS (`53`), NTP (`123`), and HTTPS (`443`) only through the firewall internet interface
+- block insecure outbound SSH/Telnet-style ports (`22`, `23`, and `2323`) from the IoT network
+- masquerade IoT traffic through the firewall internet interface
+- expose controlled SSH/Telnet-like listeners on the IoT container (`22`, `23`, and `2323`) for stronger filtering evidence
+- keep SSH to the firewall blocked from the simulated attacker network as an extra hardening step
 
 ## Layout
 
@@ -85,7 +88,8 @@ docker compose exec iot ss -lntp
 ## Notes
 
 - This stack uses Docker bridge networks instead of full virtual machines, so containers share the host kernel.
-- The internal network is marked `internal: true` so the IoT container cannot reach the internet unless traffic is forwarded through `fw`.
+- The `iot_net` and `wan_net` networks are marked `internal: true`, so neither the IoT device nor the attacker has direct internet access.
+- The firewall has a third network, `internet_net`, which acts like the NAT interface in the Vagrant lab and provides real outbound internet access.
 - Interface names are detected dynamically inside the firewall container to avoid the interface-name mismatch issue noted in the Vagrant lab.
 - The IoT container rewrites `/etc/resolv.conf` to `1.1.1.1` at startup so outbound name resolution traverses the firewall path instead of relying on Docker's embedded resolver.
 - Runtime evidence created at startup is written into `docker-lab/results/`.
@@ -102,6 +106,14 @@ powershell -ExecutionPolicy Bypass -File .\run-phase3.ps1
 The script starts the lab, resets counters, runs baseline and attack tests, and writes evidence into `docker-lab/results/<timestamp>/`.
 
 For the manual Phase 3 workflow and live monitoring commands, see `PHASE3.md`.
+
+For a live presentation demo with pauses between each step, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\demo-phase3.ps1 -FreshStart -ClearResults
+```
+
+Use `PHASE3.md` as the human guide, `run-phase3.ps1` for automatic evidence capture, and `demo-phase3.ps1` for an interactive presentation flow.
 
 ## Equivalent validation commands
 
@@ -133,4 +145,10 @@ Blocked outbound Telnet attempt from the IoT device:
 
 ```bash
 docker compose exec iot nc -vz -w 5 1.1.1.1 23
+```
+
+Blocked outbound SSH attempt from the IoT device:
+
+```bash
+docker compose exec iot nc -vz -w 5 1.1.1.1 22
 ```

@@ -20,18 +20,20 @@ docker compose ps
 
 Expected result: all three services show an `Up` status.
 
-## 3. Verify IoT Services and DNS
+## 3. Verify IoT Services, Routes, and DNS
 
 Confirm the controlled listeners and DNS configuration inside the IoT container.
 
 ```bash
 docker compose exec iot ss -lntp
+docker compose exec iot ip route
 docker compose exec iot cat /etc/resolv.conf
 ```
 
 Expected result:
 
-- listeners on TCP `23` and `2323`
+- listeners on TCP `22`, `23`, and `2323`
+- default route via `10.20.0.1`
 - `nameserver 1.1.1.1` in `/etc/resolv.conf`
 
 ## 4. Reset and Inspect Firewall Counters
@@ -65,6 +67,7 @@ PORT     STATE    SERVICE
 Attempt to connect directly to the IoT listeners from the attacker.
 
 ```bash
+docker compose exec atk nc -vz -w 5 10.20.0.10 22
 docker compose exec atk nc -vz -w 5 10.20.0.10 23
 docker compose exec atk nc -vz -w 5 10.20.0.10 2323
 ```
@@ -87,25 +90,32 @@ docker compose exec fw watch -n 1 nft list chain inet filter forward
 
 ## 8. Test Allowed Outbound Traffic
 
-DNS through the firewall path:
+Use a real outbound HTTPS destination:
 
 ```bash
 docker compose exec iot dig @1.1.1.1 +time=2 +tries=1 example.com
-```
-
-HTTPS timing:
-
-```bash
 docker compose exec iot sh -lc 'for i in 1 2 3 4 5; do curl -sS -o /dev/null -w "run=$i time_namelookup=%{time_namelookup} time_connect=%{time_connect} time_appconnect=%{time_appconnect} time_total=%{time_total}\n" https://example.com; done'
 ```
 
+Expected result: DNS resolves successfully and the HTTPS request returns measurable timing values.
+
 ## 9. Test Blocked Outbound Traffic
 
+Attempt to reach blocked external ports:
+
 ```bash
+docker compose exec iot nc -vz -w 5 1.1.1.1 22
 docker compose exec iot nc -vz -w 5 1.1.1.1 23
+docker compose exec iot nc -vz -w 5 1.1.1.1 2323
 ```
 
-Expected result: the Telnet attempt fails.
+Expected result: all three connections fail because only outbound `53`, `123`, and `443` are allowed.
+
+Show the firewall forward counters after the outbound checks:
+
+```bash
+docker compose exec fw nft list chain inet filter forward
+```
 
 ## 10. Run the Automated Phase 3 Suite
 

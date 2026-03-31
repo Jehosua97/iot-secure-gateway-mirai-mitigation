@@ -12,6 +12,7 @@ if [[ -z "${DEVICE_IF}" ]]; then
   exit 1
 fi
 
+# Force the IoT container to treat the firewall as its default gateway.
 ip route replace default via "${FIREWALL_IP}" dev "${DEVICE_IF}"
 
 mkdir -p /results
@@ -26,6 +27,7 @@ start_listener() {
   echo $! >"/run/iot-port-${port}.pid"
 }
 
+# Keep deliberately exposed services available so the firewall can prove it is blocking them.
 start_listener 22
 start_listener 23
 start_listener 2323

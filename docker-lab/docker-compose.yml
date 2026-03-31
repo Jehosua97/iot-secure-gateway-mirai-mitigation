@@ -1,4 +1,5 @@
 services:
+  # Firewall/gateway container that sits between the IoT subnet and the WAN subnet.
   fw:
     build:
       context: ./fw
@@ -23,6 +24,7 @@ services:
       - ./results:/results
     restart: unless-stopped
 
+  # Simulated IoT device that can only reach the WAN through the firewall.
   iot:
     build:
       context: ./iot
@@ -42,6 +44,7 @@ services:
       - ./results:/results
     restart: unless-stopped
 
+  # Simulated external host used both as the attacker and as the WAN-side service endpoint.
   atk:
     build:
       context: ./atk
@@ -64,12 +67,14 @@ services:
     restart: unless-stopped
 
 networks:
+  # Private IoT segment behind the gateway.
   iot_net:
     driver: bridge
     ipam:
       config:
         - subnet: 10.20.0.0/24
           gateway: 10.20.0.254
+  # External/WAN segment where inbound attacks and legitimate outbound traffic are tested.
   wan_net:
     driver: bridge
     ipam:

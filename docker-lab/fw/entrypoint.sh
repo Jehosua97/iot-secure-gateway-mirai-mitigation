@@ -6,6 +6,7 @@ IOT_IP="${IOT_IP:-10.20.0.1}"
 WAN_SIM_NET="${WAN_SIM_NET:-192.168.56.0/24}"
 WAN_SIM_IP="${WAN_SIM_IP:-192.168.56.2}"
 
+# Docker can reorder interface names, so bind nftables rules to the IPs we control.
 find_interface_by_ip() {
   local target_ip="$1"
   ip -o -4 addr show | awk -v target="$target_ip" '$4 ~ ("^" target "/") {print $2; exit}'
@@ -20,6 +21,7 @@ if [[ -z "${IOT_IF}" || -z "${EXT_IF}" ]]; then
   exit 1
 fi
 
+# Build the firewall policy from scratch on every container start.
 cat >/etc/nftables.conf <<EOF
 flush ruleset
 
@@ -60,6 +62,7 @@ EOF
 sysctl -w net.ipv4.ip_forward=1 >/dev/null
 nft -f /etc/nftables.conf
 
+# Persist startup evidence so the lab can show its baseline state later.
 mkdir -p /results
 
 ip -br addr >/results/fw-ip-addr-startup.txt

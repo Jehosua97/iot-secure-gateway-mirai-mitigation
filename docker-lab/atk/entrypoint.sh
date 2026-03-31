@@ -13,6 +13,7 @@ if [[ -z "${WAN_IF}" ]]; then
   exit 1
 fi
 
+# Route IoT-bound traffic through the firewall instead of talking directly to the IoT subnet.
 ip route replace "${IOT_NET}" via "${FIREWALL_WAN_IP}" dev "${WAN_IF}"
 
 mkdir -p /results
@@ -26,6 +27,7 @@ start_listener() {
   echo $! >"/run/atk-port-${port}.pid"
 }
 
+# Expose WAN-side services so the demo can test both blocked and allowed outbound paths.
 start_listener 22
 start_listener 23
 start_listener 2323

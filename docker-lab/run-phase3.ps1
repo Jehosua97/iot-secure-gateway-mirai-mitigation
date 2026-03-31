@@ -6,6 +6,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Store every command output so the run can be cited later in the report.
 function Invoke-LoggedCommand {
     param(
         [Parameter(Mandatory = $true)]
@@ -116,6 +117,7 @@ Invoke-LoggedCommand -Label 'iot-blocked-2323-to-wan' -CommandArgs ($compose + @
 Invoke-LoggedCommand -Label 'iot-allowed-443-to-wan' -CommandArgs ($compose + @('exec', '-T', 'iot', 'sh', '-lc', 'for i in 1 2 3 4 5; do start=$(date +%s%3N); if nc -nvz -w 3 192.168.56.10 443 >/dev/null 2>&1; then status=success; else status=fail; fi; end=$(date +%s%3N); echo "run=$i status=$status connect_ms=$((end-start))"; done'))
 Invoke-LoggedCommand -Label 'fw-forward-counters-after-outbound' -CommandArgs ($compose + @('exec', '-T', 'fw', 'nft', 'list', 'chain', 'inet', 'filter', 'forward'))
 
+# Increase burst size gradually to show how the policy behaves under heavier attack traffic.
 Invoke-LoggedCommand -Label 'atk-scale-10' -CommandArgs ($compose + @('exec', '-T', 'atk', 'sh', '-lc', 'start=$(date +%s); for i in $(seq 1 10); do nc -vz -w 2 10.20.0.10 2323 >/dev/null 2>&1 & done; wait; end=$(date +%s); echo "parallel_connections=10"; echo "elapsed_seconds=$((end-start))"'))
 Invoke-LoggedCommand -Label 'atk-scale-25' -CommandArgs ($compose + @('exec', '-T', 'atk', 'sh', '-lc', 'start=$(date +%s); for i in $(seq 1 25); do nc -vz -w 2 10.20.0.10 2323 >/dev/null 2>&1 & done; wait; end=$(date +%s); echo "parallel_connections=25"; echo "elapsed_seconds=$((end-start))"'))
 Invoke-LoggedCommand -Label 'atk-scale-50' -CommandArgs ($compose + @('exec', '-T', 'atk', 'sh', '-lc', 'start=$(date +%s); for i in $(seq 1 50); do nc -vz -w 2 10.20.0.10 2323 >/dev/null 2>&1 & done; wait; end=$(date +%s); echo "parallel_connections=50"; echo "elapsed_seconds=$((end-start))"'))

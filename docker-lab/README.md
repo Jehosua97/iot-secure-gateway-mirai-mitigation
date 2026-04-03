@@ -152,3 +152,17 @@ Blocked outbound SSH attempt from the IoT device:
 ```bash
 docker compose exec iot nc -vz -w 5 1.1.1.1 22
 ```
+
+
+
+
+
+docker compose exec fw bash
+nft list ruleset
+vi /etc/nftables.conf
+
+
+docker compose exec iot bash
+docker compose exec atk bash
+
+

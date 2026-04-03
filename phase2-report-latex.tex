@@ -1,0 +1,280 @@
+\documentclass[journal]{IEEEtran}
+
+\usepackage{cite}
+\usepackage{graphicx}
+\usepackage{url}
+\usepackage{listings}
+\usepackage{xcolor}
+
+% --- Listings style for commands/code ---
+\lstdefinestyle{cmd}{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  frame=single,
+  rulecolor=\color{black!30},
+  columns=fullflexible
+}
+\lstset{style=cmd}
+
+\hyphenation{op-tical net-works semi-conduc-tor}
+
+\begin{document}
+
+\title{IoT Secure Gateway: Network-Based Defense Against IoT Botnets\\Phase 2 -- Practical Implementation and Analysis}
+
+\author{Jehosua~Alan~Joya~Venegas,
+        Saurodeep~Majumdar,
+        Dylan~Luong%
+\thanks{Jehosua Alan Joya Venegas, Saurodeep Majumdar, and Dylan Luong are with the Master in Computer Science program, Algoma University, Brampton, Canada (e-mail: jjoyavenegas@algomau.ca, smajumdar@algomau.ca, pluong@algomau.ca).}%
+}
+
+\maketitle
+
+\begin{abstract}
+This report presents a practical implementation of an IoT Secure Gateway designed to mitigate Mirai-style IoT botnet threats. The prototype enforces network segmentation, firewall filtering, and Network Address Translation (NAT) to reduce Internet exposure of IoT devices, constrain inbound scanning, and limit outbound communications that enable botnet enrollment. The implementation is deployed in a controlled environment and mapped to the Mirai case study to contextualize design decisions and validate real-world relevance.
+\end{abstract}
+
+\begin{IEEEkeywords}
+IoT Security, Mirai, Botnets, Network Segmentation, NAT, Firewall, nftables, Vagrant, VirtualBox.
+\end{IEEEkeywords}
+
+\section{Introduction}
+\IEEEPARstart{T}{his} paper presents the practical implementation of an IoT Secure Gateway framework designed to mitigate Mirai-style IoT botnet threats through network-layer controls. Building on the cybersecurity problem definition and the Mirai case study, the work translates documented real-world attack behavior into a reproducible lab environment that demonstrates how segmentation, firewall enforcement, and Network Address Translation (NAT) reduce IoT exposure to Internet-wide scanning and botnet recruitment \cite{mirai_usenix}.
+
+The paper contributes the following:
+\begin{itemize}
+\item \textbf{A reproducible IoT Secure Gateway prototype} implemented as a three-node lab (firewall/gateway, IoT device, and external attacker) that models realistic WAN--LAN segmentation and routing boundaries.
+\item \textbf{A case-study-driven security design} that maps Mirai's documented infection workflow (Internet scanning, service exposure, and botnet enrollment) to concrete network controls such as default-deny forwarding, inbound blocking, and least-privilege egress filtering \cite{mirai_usenix}.
+\item \textbf{A practical demonstration methodology} including attack simulation commands and observable outcomes (e.g., filtered ports, blocked connections, controlled outbound access) to validate that the implemented controls mitigate Mirai-style behavior in a controlled environment \cite{cloudflare_mirai,cisa_mirai}.
+\end{itemize}
+
+The remainder of this document is organized as follows: Section~II presents the case-study-driven design rationale based on Mirai; Section~III describes the virtual network architecture and topology; Section~IV details the VirtualBox interface configuration and addressing plan; Section~V explains routing and NAT operation; Section~VI presents the inbound attack simulations and functional prototype results; Section~VII summarizes the firewall enforcement model; Section~VIII discusses real-world relevance and architectural implications; and Section~IX concludes the paper with a summary of progress and next steps.
+
+\section{Case Study--Driven Design Rationale}
+The Mirai botnet operated by scanning the public Internet for IoT devices with exposed Telnet services and weak credentials \cite{mirai_usenix}. Once compromised, devices were enrolled into a command-and-control infrastructure used to launch large-scale DDoS attacks.
+
+Key vulnerabilities exploited by Mirai included:
+\begin{itemize}
+\item Direct Internet exposure of IoT devices
+\item Open Telnet/SSH services
+\item Lack of network segmentation
+\item Unrestricted outbound communication
+\end{itemize}
+
+Industry analysis from Cloudflare and CISA emphasized that blocking inbound access and restricting unnecessary outbound traffic significantly reduces IoT botnet effectiveness \cite{cloudflare_mirai, cisa_mirai}.
+Based on these findings, the proposed solution focuses on network-layer enforcement rather than device-level patching alone.
+
+\section{Virtual Network Architecture}
+\subsection{Overview of the Topology}
+The lab environment consists of three virtual machines:
+\begin{itemize}
+\item \textbf{fw} -- Firewall / Gateway
+\item \textbf{iot} -- Simulated IoT device
+\item \textbf{atk} -- External attacker
+\end{itemize}
+
+The architecture emulates a real-world deployment where IoT devices reside behind a gateway and are not directly exposed to public networks. The environment contains two isolated Layer-3 networks:
+\begin{itemize}
+\item WAN (simulated public network)
+\item IoT LAN (private internal subnet)
+\end{itemize}
+The firewall acts as the only routing boundary between them.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=0.5\textwidth]{img/high-level-diagram.png}
+\caption{High-level network architecture for the IoT Secure Gateway lab.}
+\label{fig:high-level-diagram}
+\end{figure}
+
+\section{VirtualBox Interface Configuration}
+\subsection{Firewall VM (fw)}
+The firewall VM is multi-homed and contains three network interfaces as shown in Table~\ref{tab:fw_if}.
+
+\begin{table}[!t]
+\caption{Firewall (fw) VirtualBox Adapter Configuration}
+\label{tab:fw_if}
+\centering
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{p{0.8cm} p{1.2cm} p{2.8cm} p{1.8cm}}
+\hline
+\textbf{Adapter} & \textbf{Mode} & \textbf{Function} & \textbf{Example IP} \\
+\hline
+1 & NAT & Internet upstream access & 10.0.2.15 (DHCP) \\
+2 & Host-only & WAN simulation & 192.168.56.2 \\
+3 & Host-only & IoT LAN & 10.20.0.1 \\
+\hline
+\end{tabular}
+\end{table}
+
+Typical Linux interface mapping:
+\begin{itemize}
+\item enp0s3 $\rightarrow$ NAT interface
+\item enp0s8 $\rightarrow$ WAN interface
+\item enp0s9 $\rightarrow$ IoT LAN interface
+\end{itemize}
+
+The firewall performs Layer-3 routing, packet filtering, source NAT (masquerading), and traffic segmentation.
+
+\subsection{IoT VM}
+The IoT device has a single interface:
+\begin{itemize}
+\item Adapter 1: IoT LAN
+\item IP Address: 10.20.0.10
+\item Default Gateway: 10.20.0.1
+\end{itemize}
+Routing table example:
+\begin{lstlisting}
+default via 10.20.0.1
+10.20.0.0/24 directly connected
+\end{lstlisting}
+The IoT device has no direct WAN exposure.
+
+\subsection{Attacker VM}
+The attacker VM has one interface:
+\begin{itemize}
+\item Adapter 1: WAN
+\item IP Address: 192.168.56.10
+\item Gateway: 192.168.56.2
+\end{itemize}
+The attacker can only reach the IoT network if the firewall forwards traffic.
+
+\begin{figure}[!t]
+\centering
+
+\includegraphics[width=0.5\textwidth]{img/interface-mapping-diagram.png}
+\caption{Detailed interface mapping and addressing for the lab environment.}
+\label{fig:ipmapping}
+\end{figure}
+
+\section{Routing and NAT Operation}
+\subsection{IP Forwarding}
+The firewall enables Layer-3 routing through:
+\begin{lstlisting}
+net.ipv4.ip_forward = 1
+\end{lstlisting}
+Without IP forwarding enabled, packets cannot traverse interfaces.
+
+\subsection{Outbound Traffic Flow (IoT $\rightarrow$ Internet)}
+When the IoT device initiates outbound traffic:
+\begin{enumerate}
+\item IoT sends packets to 10.20.0.1 (default gateway).
+\item Firewall receives packet on IoT interface.
+\item Packet evaluated in FORWARD chain.
+\item If permitted (e.g., HTTPS), NAT is applied.
+\item Source address rewritten from 10.20.0.10 to 192.168.56.2.
+\item Packet exits WAN interface.
+\item VirtualBox NAT forwards traffic to the real Internet.
+\end{enumerate}
+Return traffic is reverse-translated and delivered back to 10.20.0.10. This demonstrates stateful NAT masquerading.
+
+\begin{figure}[!t]
+\centering
+
+\includegraphics[width=0.5\textwidth]{img/outbound-diagram.png}
+\caption{Outbound packet flow illustrating NAT translation at the gateway.}
+\label{fig:natflow}
+\end{figure}
+
+\section{Inbound Attack Simulation (Mirai Model)}
+\subsection{Mirai-Style Inbound Scanning Simulation}
+Mirai infects devices by scanning for exposed Telnet/SSH services \cite{mirai_usenix}. Simulation command from attacker:
+\begin{lstlisting}
+nmap -p 22,23,2323 10.20.0.10
+\end{lstlisting}
+
+Packet path:
+\begin{enumerate}
+\item Attacker sends packet toward 10.20.0.10.
+\item Packet reaches firewall WAN interface.
+\item Evaluated in FORWARD chain.
+\item Default policy = DROP.
+\item Packet discarded.
+\item No TCP handshake occurs.
+\end{enumerate}
+
+Result: ports appear filtered, IoT device is unreachable, and Mirai-style scanning fails. This confirms that inbound scanning attempts, similar to Mirai's infection strategy, are effectively blocked.
+
+\subsection{Direct Service Access Attempts}
+From attacker:
+\begin{lstlisting}
+nc -vz 10.20.0.10 23
+nc -vz 10.20.0.10 22
+\end{lstlisting}
+Observed behavior: connection timed out or filtered, with no access to Telnet or SSH. This directly mitigates the exploitation mechanism described in \cite{mirai_usenix}.
+
+\subsection{Controlled Outbound Traffic}
+From IoT VM:
+\begin{lstlisting}
+curl https://example.com
+\end{lstlisting}
+Observed behavior: HTTPS allowed and functional.
+
+From IoT VM to unauthorized ports:
+\begin{lstlisting}
+nc -vz 1.1.1.1 23
+\end{lstlisting}
+Observed behavior: the request is blocked. This demonstrates that even if compromised, the IoT device cannot freely communicate with arbitrary external servers, limiting botnet command-and-control communication.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=0.5\textwidth]{img/inbound-diagram.png}
+\caption{Inbound traffic blocked at the firewall forwarding boundary.}
+\label{fig:blocking}
+\end{figure}
+
+\section{Firewall Enforcement Model}
+The firewall enforces:
+\begin{itemize}
+\item Default DROP policy for forwarding
+\item Explicit WAN $\rightarrow$ IoT blocking
+\item Restricted IoT outbound services (DNS, HTTPS, NTP only)
+\item NAT masquerading for outbound traffic
+\end{itemize}
+
+Netfilter hook flow:
+\begin{lstlisting}
+PREROUTING -> FORWARD -> POSTROUTING
+\end{lstlisting}
+Inbound traffic is dropped in the FORWARD chain. Outbound traffic is NATed in POSTROUTING.
+
+\section{Real-World Relevance and Architectural Implications}
+\subsection{Growth of Smart Devices in Residential Environments}
+The number of connected devices inside households has increased significantly over the past decade. Recent industry data indicates that the average household globally contains approximately 10 to 17 connected smart devices, including smart TVs, cameras, thermostats, voice assistants, and other IoT systems \cite{statista_devices}. In highly connected regions, this number may exceed 20 devices per household.
+
+\subsection{Misconception of ``Private Network = Secure Network''}
+Many users assume that because IoT devices are located inside a private home LAN, they are inherently protected. However, the Mirai botnet demonstrated that IoT devices were often exposed to Internet-wide scanning due to misconfiguration or lack of firewall enforcement \cite{mirai_usenix}.
+
+Even when devices are not directly exposed, a flat internal network allows lateral movement if one device is compromised. Once inside the network, a compromised IoT device can scan internal hosts, attempt credential harvesting, interact with personal computers or NAS storage, and launch internal denial-of-service attacks.
+
+\subsection{Architectural Mitigation in the Implemented Solution}
+The IoT Secure Gateway addresses these risks through network segmentation (separate IoT subnet), default-deny forwarding policy, blocking inbound WAN $\rightarrow$ IoT traffic, controlled outbound traffic (DNS, HTTPS, NTP only), and NAT boundary enforcement. This directly mitigates the Mirai infection model, which relied on Internet-wide scanning and unrestricted communication with command-and-control infrastructure \cite{mirai_usenix}.
+
+\subsection{Why This Architecture Should Be Standard Practice}
+This architecture represents a configuration that should be standard in modern households. The required controls are not enterprise-exclusive; many consumer routers already support guest networks or VLAN segmentation, port forwarding control, firewall configuration, and NAT enforcement. However, these features are often underutilized.
+
+The core lesson of this project is that small network configuration decisions can substantially increase residential security posture. Mirai did not rely on advanced zero-day exploits; it leveraged weak configuration and exposed services \cite{mirai_usenix}. Therefore, fundamental network-layer protections can meaningfully reduce risk.
+
+\subsection{Connection to Case Study Findings}
+The Mirai case study emphasized that large-scale disruption was enabled by widespread insecure deployments rather than sophisticated exploitation \cite{mirai_usenix}. Industry guidance further reinforces that inbound filtering and segmentation are critical defenses against IoT botnets \cite{cloudflare_mirai, cisa_mirai}. The implemented IoT Secure Gateway validates these recommendations in a controlled environment, demonstrating that network-layer enforcement alone can significantly mitigate documented real-world attack vectors.
+
+\section{Conclusion}
+The IoT Secure Gateway prototype is fully functional and demonstrates practical mitigation of Mirai-style IoT botnet attacks through network-level security controls. The system successfully prevents inbound scanning, restricts unauthorized outbound communication, and enforces strict segmentation between public and private networks. The architecture is reproducible, technically sound, and aligned with documented real-world attack behavior.
+
+\begin{thebibliography}{1}
+
+\bibitem{mirai_usenix}
+M.~Antonakakis \emph{et al.}, ``Understanding the Mirai Botnet,'' in \emph{Proceedings of the 26th USENIX Security Symposium (USENIX Security '17)}, Vancouver, BC, Canada, Aug. 2017, pp. 1093--1110. [Online]. Available: \url{https://www.usenix.org/system/files/conference/usenixsecurity17/sec17-antonakakis.pdf}. Accessed: Mar. 2026.
+
+\bibitem{cloudflare_mirai}
+Cloudflare, ``What is the Mirai Botnet?'' [Online]. Available: \url{https://www.cloudflare.com/learning/ddos/glossary/mirai-botnet/}. Accessed: Mar. 2026.
+
+\bibitem{cisa_mirai}
+Cybersecurity and Infrastructure Security Agency (CISA), ``Alert (TA16-288A): Heightened DDoS Threat Posed by Mirai and Other Botnets,'' Oct. 14, 2016. [Online]. Available: \url{https://www.cisa.gov/uscert/ncas/alerts/TA16-288A}. Accessed: Mar. 31, 2026.
+
+\bibitem{statista_devices}
+Statista Research Department, ``Average number of devices and connections per capita,'' 2023. [Online]. Available: \url{https://www.statista.com/chart/32691/average-number-of-devices-and-connections-per-capita/}. Accessed: Mar. 2026.
+
+\end{thebibliography}
+
+\end{document}

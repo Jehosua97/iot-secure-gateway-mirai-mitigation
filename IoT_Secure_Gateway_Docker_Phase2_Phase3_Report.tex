@@ -1,0 +1,464 @@
+\documentclass[journal]{IEEEtran}
+
+\usepackage{cite}
+\usepackage{graphicx}
+\usepackage[hyphens]{url}
+\usepackage{xurl}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage[hidelinks,breaklinks=true]{hyperref}
+
+\lstdefinestyle{cmd}{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  frame=single,
+  rulecolor=\color{black!30},
+  columns=fullflexible
+}
+\lstset{style=cmd}
+
+\hyphenation{op-tical net-works semi-conduc-tor}
+
+\newcommand{\diagramplaceholder}[2]{%
+\IfFileExists{#1}{%
+\includegraphics[width=0.5\textwidth]{#1}%
+}{%
+\fbox{%
+\parbox[c][1.45in][c]{0.45\textwidth}{%
+\centering
+\textbf{Diagram Placeholder}\\[4pt]
+#2\\[4pt]
+\texttt{\detokenize{#1}}%
+}%
+}%
+}%
+}
+
+\begin{document}
+
+\title{IoT Secure Gateway: Network-Based Defense Against IoT Botnets\\Phase 3: Docker-Based Implementation and Evaluation}
+
+\author{
+\makebox[\textwidth][c]{%
+\parbox[t]{0.30\textwidth}{\centering
+\textbf{Dylan Luong} \\
+\textit{Algoma University} \\
+Student ID: 5150921 \\
+Brampton, Canada
+}\hfill
+\parbox[t]{0.30\textwidth}{\centering
+\textbf{Jehosua Alan Joya Venegas} \\
+\textit{Algoma University} \\
+Student ID: 5149910 \\
+Brampton, Canada
+}\hfill
+\parbox[t]{0.30\textwidth}{\centering
+\textbf{Saurodeep Majumdar} \\
+\textit{Algoma University} \\
+Student ID: 5153010 \\
+Brampton, Canada
+}%
+}
+}
+
+\maketitle
+
+\begin{abstract}
+This paper presents a Docker-based implementation and evaluation of an IoT Secure Gateway designed to mitigate Mirai-style IoT botnet threats through network-layer controls. The experimental platform consists of three isolated roles: a firewall/gateway container, an internal IoT container, and an external WAN container that serves both as attacker and controlled service endpoint. The proposed architecture enforces network segmentation, stateful forwarding control, default-deny filtering, and least-privilege outbound policy using \texttt{nftables}. The gateway blocks unsolicited WAN-to-IoT SSH and Telnet-style traffic, prevents insecure outbound SSH/Telnet propagation attempts from the IoT segment, and preserves legitimate outbound HTTPS communication. A phase 3 evaluation is conducted with automated evidence collection to assess three dimensions of system performance: accuracy, efficiency, and scalability. The results show filtered inbound ports, correct firewall counter progression, low-latency legitimate HTTPS connectivity, and stable policy enforcement under burst attack conditions. These findings indicate that gateway-level filtering provides a practical and effective mitigation layer for unmanaged or legacy IoT devices.
+\end{abstract}
+
+\begin{IEEEkeywords}
+IoT Security, Mirai, Botnets, Docker, Docker Compose, Firewall, nftables, Network Segmentation, Stateful Filtering.
+\end{IEEEkeywords}
+
+\section{Introduction}
+\IEEEPARstart{T}{he} rapid growth of Internet-connected consumer and edge devices has expanded the attack surface available to botnet operators and other adversaries. This risk became especially visible in the Mirai botnet, which scanned the Internet for devices exposing management services such as Telnet and SSH, then enrolled compromised devices into a command-and-control infrastructure used for large-scale DDoS attacks \cite{mirai_usenix}. Because many IoT devices provide limited patching support, weak default security, and little or no host-based protection, network-layer defenses remain an important mitigation strategy.
+
+This paper presents an IoT Secure Gateway that applies segmentation and firewall enforcement to reduce exposure of a protected IoT device to Mirai-style attack behavior. The design places the IoT device behind a dedicated gateway that serves as the only routing boundary between the internal subnet and an external WAN segment. The gateway enforces a default-deny forwarding policy, blocks administrative services associated with Mirai-style scanning and propagation, and preserves only explicitly permitted outbound communication.
+
+The paper contributes the following:
+\begin{itemize}
+\item \textbf{A reproducible Docker-based security testbed} composed of a firewall/gateway container, a protected IoT container, and an external WAN container, thereby preserving explicit WAN--LAN separation and centralized policy enforcement.
+\item \textbf{A case-study-driven enforcement model} that maps Mirai's documented infection workflow to concrete network controls, including default-deny forwarding, inbound blocking, and least-privilege outbound filtering \cite{mirai_usenix}.
+\item \textbf{An evidence-based phase 3 evaluation} that measures system accuracy, efficiency, and scalability through automated attack execution, firewall counter analysis, connection-timing measurements, and burst-load testing.
+\end{itemize}
+
+The remainder of this paper is organized as follows. Section~II presents the case-study-driven design rationale based on Mirai. Section~III describes the network architecture and topology. Section~IV details the container configuration and routing model. Section~V explains the firewall enforcement model. Section~VI presents the functional attack simulation and prototype validation. Section~VII introduces the phase 3 experimental methodology and results. Section~VIII discusses real-world impact and identified gaps. Section~IX concludes with key findings and future work.
+
+\section{Case Study--Driven Design Rationale}
+Mirai succeeded because many IoT devices were exposed with weakly protected administrative services, especially Telnet, and could initiate unrestricted outbound communication after compromise \cite{mirai_usenix}. Once infected, devices were not only victims but also participants in botnet propagation and DDoS activity.
+
+Key weaknesses associated with Mirai-style behavior include:
+\begin{itemize}
+\item Exposed SSH or Telnet-like services
+\item Poor segmentation between untrusted and internal devices
+\item Unrestricted outbound communication from compromised IoT systems
+\item Limited patching or endpoint security on the IoT device itself
+\end{itemize}
+
+Industry guidance from Cloudflare and CISA emphasizes that segmentation, inbound filtering, and restriction of unnecessary traffic are practical ways to reduce IoT botnet risk \cite{cloudflare_mirai, cisa_mirai}. These observations motivate a network-based defense model in which the gateway, rather than the endpoint, becomes the primary enforcement point.
+
+Accordingly, the proposed enforcement policy is designed to:
+\begin{itemize}
+\item block unsolicited WAN-to-IoT access on ports \texttt{22}, \texttt{23}, and \texttt{2323};
+\item block insecure IoT-to-WAN SSH/Telnet-style traffic on ports \texttt{22}, \texttt{23}, and \texttt{2323};
+\item permit only the legitimate outbound service used in the evaluation, namely HTTPS on port \texttt{443}; and
+\item centralize all policy decisions at the gateway firewall.
+\end{itemize}
+
+\section{System Architecture}
+\subsection{Overview of the Topology}
+The experimental platform consists of three Docker containers:
+\begin{itemize}
+\item \textbf{fw} -- Firewall / Gateway
+\item \textbf{iot} -- Simulated IoT device
+\item \textbf{atk} -- External WAN host used both as attacker and as the controlled WAN-side service endpoint
+\end{itemize}
+
+Two Docker bridge networks provide logical separation between the protected IoT segment and the external WAN segment. The firewall container is the only multi-homed node and therefore serves as the sole routing boundary between the two networks. This structure intentionally mirrors a practical gateway deployment in which externally sourced traffic and internally initiated traffic must both traverse the same policy enforcement point.
+
+
+\begin{figure}[!t]
+\centering
+\diagramplaceholder{img/docker-high-level-topology.png}{Insert the high-level Docker topology diagram here.}
+\caption{High-level Docker-based network architecture for the IoT Secure Gateway lab.}
+\label{fig:docker_high_level}
+\end{figure}
+
+\subsection{Addressing Plan}
+The addressing model is shown in Table~\ref{tab:docker_addressing}.
+
+\begin{table}[!t]
+\caption{Docker Container Addressing and Role Mapping}
+\label{tab:docker_addressing}
+\centering
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{p{1.5cm} p{2.3cm} p{2.2cm} p{1.8cm}}
+\hline
+\textbf{Container} & \textbf{Network Attachment} & \textbf{IP Address} & \textbf{Role} \\
+\hline
+\texttt{fw} & \texttt{iot\_net}, \texttt{wan\_net} & 10.20.0.1, 192.168.56.2 & Router / Firewall \\
+\texttt{iot} & \texttt{iot\_net} & 10.20.0.10 & Protected IoT endpoint \\
+\texttt{atk} & \texttt{wan\_net} & 192.168.56.10 & WAN host / attacker / test service \\
+\hline
+\end{tabular}
+\end{table}
+
+This arrangement preserves the intended trust boundary:
+\begin{itemize}
+\item the IoT device is not directly reachable from the WAN without passing through the firewall
+\item the external host reaches the IoT subnet only through the firewall
+\item all meaningful policy decisions occur in the firewall container
+\end{itemize}
+
+\begin{figure}[!t]
+\centering
+\diagramplaceholder{img/docker-addressing-topology.png}{Insert the detailed container-to-network mapping here.}
+\caption{Detailed Docker interface mapping and addressing for the lab environment.}
+\label{fig:docker_addressing}
+\end{figure}
+
+\section{Container Configuration and Routing}
+\subsection{Firewall Container}
+The firewall container is multi-homed. At startup, it identifies its IoT-side and WAN-side interfaces by IP address and generates the \texttt{nftables} ruleset dynamically. Layer-3 forwarding is enabled through:
+
+\begin{lstlisting}
+net.ipv4.ip_forward = 1
+\end{lstlisting}
+
+To support reproducibility and later analysis, the firewall stores startup evidence under \texttt{docker-lab/results/}, including interface state, routing tables, and the active ruleset.
+
+\subsection{IoT Container}
+The IoT container has a single interface on the \texttt{10.20.0.0/24} network and installs the firewall as its default gateway:
+
+\begin{lstlisting}
+default via 10.20.0.1
+10.20.0.0/24 dev eth0 proto kernel scope link
+\end{lstlisting}
+
+The container also starts controlled listeners on TCP \texttt{22}, \texttt{23}, and \texttt{2323}. These services are intentionally exposed so that scan results reporting \texttt{filtered} can be attributed to firewall enforcement rather than to the absence of a listening application.
+
+\subsection{Attacker Container}
+The attacker container has a single interface on \texttt{192.168.56.0/24} and adds a route toward the IoT subnet through the firewall:
+
+\begin{lstlisting}
+10.20.0.0/24 via 192.168.56.2 dev eth0
+\end{lstlisting}
+
+It also exposes controlled WAN-side listeners on TCP \texttt{22}, \texttt{23}, \texttt{2323}, and \texttt{443}. The \texttt{443} listener provides a controlled WAN-side destination for legitimate outbound testing, while the other ports are used to represent management services that should be blocked by policy.
+
+\section{Firewall Enforcement Model}
+The firewall policy is implemented in the \texttt{forward} chain of \texttt{nftables} and follows a default-deny model:
+
+\begin{lstlisting}
+policy drop
+\end{lstlisting}
+
+The forwarding rules can be summarized as follows:
+\begin{enumerate}
+\item Allow established and related forwarded traffic
+\item Drop WAN-to-IoT traffic targeting TCP \texttt{22}, \texttt{23}, and \texttt{2323}
+\item Drop any other forwarded WAN-to-IoT traffic
+\item Drop IoT-to-WAN traffic targeting TCP \texttt{22}, \texttt{23}, and \texttt{2323}
+\item Allow IoT-to-WAN traffic targeting TCP \texttt{443}
+\end{enumerate}
+
+Conceptually, the policy behaves as:
+
+\begin{lstlisting}
+WAN -> IoT : 22,23,2323  => DROP
+WAN -> IoT : everything else => DROP
+IoT -> WAN : 22,23,2323 => DROP
+IoT -> WAN : 443 => ACCEPT
+return traffic for accepted flows => ACCEPT
+\end{lstlisting}
+
+This policy directly reflects the Mirai threat model. The botnet relied on exposed management services for initial infection and unrestricted communication for later coordination or propagation \cite{mirai_usenix}. The gateway addresses both behaviors at the network boundary.
+
+
+\begin{figure}[!t]
+\centering
+\diagramplaceholder{img/firewall-policy-flow.png}{Insert the forwarding and filtering flow diagram here.}
+\caption{Forwarding policy behavior between the WAN and IoT segments.}
+\label{fig:firewall_policy}
+\end{figure}
+
+\section{Functional Validation}
+\subsection{Starting the Lab}
+The experimental environment is launched with:
+
+\begin{lstlisting}
+docker compose up --build -d
+docker compose ps
+\end{lstlisting}
+
+These commands start the three-container topology and confirm that the environment is operational.
+
+\subsection{Inbound Mirai-Style Scanning}
+Inbound Mirai-style scanning is emulated from the WAN-side attacker container:
+
+\begin{lstlisting}
+docker compose exec atk nmap -Pn -p 22,23,2323 10.20.0.10
+docker compose exec atk nc -nvz -w 5 10.20.0.10 22
+docker compose exec atk nc -nvz -w 5 10.20.0.10 23
+docker compose exec atk nc -nvz -w 5 10.20.0.10 2323
+\end{lstlisting}
+
+The observed result was:
+
+\begin{lstlisting}
+22/tcp   filtered ssh
+23/tcp   filtered telnet
+2323/tcp filtered 3d-nfsd
+\end{lstlisting}
+
+This result indicates that the firewall prevents the WAN host from establishing SSH or Telnet-style sessions with the protected IoT device.
+
+\subsection{Outbound Policy Validation}
+Blocked outbound connections from the IoT container are tested with:
+
+\begin{lstlisting}
+docker compose exec iot nc -nvz -w 5 192.168.56.10 22
+docker compose exec iot nc -nvz -w 5 192.168.56.10 23
+docker compose exec iot nc -nvz -w 5 192.168.56.10 2323
+\end{lstlisting}
+
+The allowed outbound service is tested with:
+
+\begin{lstlisting}
+docker compose exec iot nc -nvz -w 5 192.168.56.10 443
+\end{lstlisting}
+
+Observed behavior:
+\begin{itemize}
+\item outbound \texttt{22}, \texttt{23}, and \texttt{2323} timed out and were blocked
+\item outbound \texttt{443} completed successfully
+\end{itemize}
+
+These outcomes demonstrate the core functional claim of the system: the gateway enforces a meaningful separation between hostile or unnecessary traffic and legitimate communication.
+
+\section{Phase 3 Experimental Methodology and Results}
+The phase 3 evaluation is organized around three performance dimensions:
+\begin{itemize}
+\item accuracy
+\item efficiency
+\item scalability
+\end{itemize}
+
+Evidence was collected automatically with:
+
+\begin{lstlisting}
+powershell -ExecutionPolicy Bypass -File .\run-phase3.ps1
+\end{lstlisting}
+
+The resulting run created a timestamped evidence folder:
+
+\begin{lstlisting}
+docker-lab/results/20260401-123110
+\end{lstlisting}
+
+\subsection{Accuracy}
+Accuracy evaluates whether the firewall applies the intended policy correctly.
+
+Three observations support the accuracy claim:
+\begin{enumerate}
+\item the inbound scan output showed \texttt{filtered} results for \texttt{22}, \texttt{23}, and \texttt{2323}
+\item the firewall counter after inbound testing showed:
+\begin{lstlisting}
+block wan ssh telnet to iot -> 15 packets, 804 bytes
+\end{lstlisting}
+\item the outbound policy counters after blocked and allowed tests showed:
+\begin{lstlisting}
+block iot ssh telnet outbound -> 9 packets, 540 bytes
+allow iot https to wan -> 5 packets, 300 bytes
+\end{lstlisting}
+\end{enumerate}
+
+Taken together, these results support policy accuracy:
+\begin{itemize}
+\item unsolicited WAN-to-IoT management traffic was blocked
+\item insecure IoT-to-WAN management traffic was blocked
+\item legitimate IoT-to-WAN HTTPS traffic was allowed
+\end{itemize}
+
+\subsection{Efficiency}
+Efficiency evaluates whether the security policy preserves legitimate functionality with low overhead.
+
+The automated run measured repeated outbound \texttt{443} timing before the scalability burst:
+
+\begin{lstlisting}
+run=1 status=success connect_ms=3
+run=2 status=success connect_ms=3
+run=3 status=success connect_ms=3
+run=4 status=success connect_ms=3
+run=5 status=success connect_ms=2
+\end{lstlisting}
+
+After the scalability burst, HTTPS remained available with similarly low timing:
+
+\begin{lstlisting}
+run=1 status=success connect_ms=2
+run=2 status=success connect_ms=2
+run=3 status=success connect_ms=2
+run=4 status=success connect_ms=2
+run=5 status=success connect_ms=1
+\end{lstlisting}
+
+Resource snapshots also remained low. Baseline container memory usage was approximately:
+\begin{itemize}
+\item firewall: \texttt{3.035 MiB}
+\item IoT device: \texttt{3.219 MiB}
+\item attacker: \texttt{4.035 MiB}
+\end{itemize}
+
+After scaling, container memory remained in the same small range and firewall CPU usage stayed negligible in the sampled output. This suggests that the gateway preserved legitimate WAN-side HTTPS connectivity while imposing very low visible overhead in the laboratory environment.
+
+\subsection{Scalability}
+Scalability evaluates whether the firewall continues to enforce policy as attack intensity increases.
+
+The automated script executed burst tests with 10, 25, and 50 parallel blocked connection attempts:
+
+\begin{lstlisting}
+parallel_connections=10  elapsed_seconds=3
+parallel_connections=25  elapsed_seconds=3
+parallel_connections=50  elapsed_seconds=3
+\end{lstlisting}
+
+After those bursts, the cumulative inbound drop counter increased from:
+
+\begin{lstlisting}
+15 packets after inbound accuracy testing
+\end{lstlisting}
+
+to:
+
+\begin{lstlisting}
+185 packets, 11004 bytes after scalability testing
+\end{lstlisting}
+
+Most importantly, the legitimate \texttt{443} test remained successful after the burst. This shows that the firewall continued to enforce the blocking policy while preserving the allowed service path.
+
+
+\begin{figure}[!t]
+\centering
+\diagramplaceholder{img/phase3-results-summary.png}{Insert a phase 3 summary chart or results graphic here.}
+\caption{Phase 3 performance summary showing policy accuracy, low-overhead HTTPS connectivity, and stable behavior under increasing blocked-connection bursts.}
+\label{fig:phase3_summary}
+\end{figure}
+
+\subsection{Interpretation of Phase 3 Results}
+Taken together, the phase 3 results provide strong support for the system's performance claims:
+\begin{itemize}
+\item \textbf{Accuracy} was demonstrated through exact rule matches and expected \texttt{filtered} or timeout behavior
+\item \textbf{Efficiency} was supported by repeated successful HTTPS timings and low container resource usage
+\item \textbf{Scalability} was demonstrated by increasing burst size while maintaining correct policy enforcement and preserving legitimate traffic
+\end{itemize}
+
+Because the evidence is timestamped, repeatable, and generated automatically, it provides a stronger basis for evaluation than a one-off manual demonstration.
+
+\section{Real-World Impact and Identified Gaps}
+\subsection{Real-World Impact}
+The project has a strong connection to real-world IoT risk for several reasons.
+
+First, many consumer and edge IoT devices still expose weak management paths, are not patched frequently, and cannot easily run endpoint security tools. A network-based gateway is therefore practical because it protects the device without requiring firmware changes.
+
+Second, the policy directly addresses a known real-world infection model. Mirai did not rely on highly sophisticated zero-day techniques. It exploited exposed services, weak credentials, and broad Internet reachability \cite{mirai_usenix}. Blocking unnecessary WAN-to-IoT access and constraining risky outbound communication is therefore a realistic and meaningful mitigation strategy.
+
+Third, this architecture is deployable beyond a lab. Home routers, small-office gateways, and edge appliances can implement the same security principle: place IoT devices in a separate segment, filter inbound traffic by default, and allow only the minimal outbound services required for operation.
+
+\subsection{Identified Gaps}
+The current implementation is effective, but it is not a complete defense.
+
+Key limitations include:
+\begin{itemize}
+\item the firewall permits \texttt{443} based on port number, not application-layer trust
+\item encrypted malicious traffic over \texttt{443} would require deeper inspection or anomaly detection
+\item the lab contains one IoT device rather than a large multi-device residential network
+\item lateral movement within a flat IoT subnet is not yet segmented at a per-device level
+\item the evaluation is strong at lab scale, but not yet validated at enterprise or ISP scale
+\end{itemize}
+
+These limitations should be stated explicitly because they motivate future work and help delimit the scope of the present contribution.
+
+\section{Conclusion and Future Work}
+The proposed IoT Secure Gateway demonstrates that a gateway firewall can meaningfully reduce Mirai-style exposure by blocking WAN-to-IoT SSH/Telnet-style access, blocking insecure IoT-to-WAN propagation paths, and preserving legitimate HTTPS communication. The phase 3 evidence substantially strengthens this conclusion. The results show policy accuracy through direct rule-counter matches, efficiency through successful low-latency HTTPS runs and low observed resource usage, and scalability through burst testing that increased blocked traffic without disrupting legitimate communication.
+
+An important contribution of this work is the role of the prior Mirai paper analysis in understanding the underlying cybersecurity problem. Studying the Mirai case in detail made it possible to move beyond a generic idea of ``adding a firewall'' and instead identify the specific failure points that make IoT botnet propagation effective: exposed management services, weak segmentation, and unrestricted outbound communication. That earlier analytical step was essential because it informed the topology, the forwarding rules, the attack simulation, and the evaluation criteria used throughout the implementation. In that sense, the literature analysis was not separate from the prototype; it was the foundation that made the prototype technically meaningful.
+
+This solution is also relevant beyond the Docker laboratory environment. A similar architecture could be adapted to embedded security gateways built on lightweight edge devices, including low-power embedded computers and certain microcontroller-oriented platforms with networking capabilities. In such a deployment, a compact autonomous gateway could be configured to protect specific sections of a network in an organization, government office, school, clinic, or industrial dependency by enforcing segmentation and traffic restrictions without requiring each endpoint to support advanced host-based protection. This is especially important for IoT and operational devices that are resource-constrained, difficult to patch, or managed by non-specialist personnel.
+
+Future versions of the system could also incorporate AI-assisted traffic filtering and anomaly response. Instead of relying only on static packet-filtering rules, the gateway could combine a secure default-deny baseline with AI-based or machine-learning-assisted traffic profiling to detect suspicious packet patterns, adapt filtering priorities, and react more quickly to emerging scanning or propagation behavior in near real time. Although such an extension would need careful control to avoid false positives and preserve explainability, it offers a promising direction for making IoT gateway protection more adaptive and operationally useful.
+
+The project likewise has practical and commercial relevance. With stronger logging, centralized policy management, device profiling, and deployment automation, this research could evolve into a security package or managed service aimed at micro, small, and medium-sized enterprises that need affordable protection for cameras, sensors, access-control devices, and other connected systems. In that form, the solution could be delivered as a low-cost gateway appliance, a preconfigured security bundle, or a service offering tailored to organizations that do not have dedicated cybersecurity teams but still need meaningful network isolation and threat reduction.
+
+Finally, the implementation highlights the relevance of the course in making this project possible. The work required combining concepts from network security, routing, firewall policy design, attack analysis, containerized deployment, evidence collection, and technical evaluation. The course therefore provided not only theoretical context, but also the practical structure needed to translate cybersecurity research into a functioning prototype. This connection between case-study analysis, hands-on implementation, and performance evaluation is one of the main strengths of the project and shows how academic work in cybersecurity can be developed into solutions with direct operational value.
+
+Future work should focus on six main directions:
+\begin{enumerate}
+\item destination allowlisting and refinement of legitimate outbound communication policies
+\item better logging, alerting, explainability, and forensic visibility
+\item segmentation and policy customization for multiple IoT devices inside the same protected environment
+\item feasibility analysis for lightweight embedded or microcontroller-based gateway deployments
+\item AI-assisted packet inspection, anomaly scoring, and reactive rule adaptation in real time
+\item larger-scale and more adversarial validation, including malicious encrypted traffic scenarios and more realistic enterprise deployments
+\end{enumerate}
+
+Overall, this study demonstrates that network-level controls provide a practical and effective defensive layer for unmanaged or legacy IoT devices, that the Mirai case study offers a strong analytical foundation for implementation, and that the resulting approach has credible technical, educational, and commercial potential.
+
+\begin{thebibliography}{1}
+
+\bibitem{mirai_usenix}
+M.~Antonakakis \emph{et al.}, ``Understanding the Mirai Botnet,'' in \emph{Proceedings of the 26th USENIX Security Symposium (USENIX Security '17)}, Vancouver, BC, Canada, Aug. 2017, pp. 1093--1110. [Online]. Available: \href{https://www.usenix.org/system/files/conference/usenixsecurity17/sec17-antonakakis.pdf}{\nolinkurl{https://www.usenix.org/system/files/conference/usenixsecurity17/sec17-antonakakis.pdf}}. Accessed: Mar. 2026.
+
+\bibitem{cloudflare_mirai}
+Cloudflare, ``What is the Mirai Botnet?'' [Online]. Available: \href{https://www.cloudflare.com/learning/ddos/glossary/mirai-botnet/}{\nolinkurl{https://www.cloudflare.com/learning/ddos/glossary/mirai-botnet/}}. Accessed: Mar. 2026.
+
+\bibitem{cisa_mirai}
+Cybersecurity and Infrastructure Security Agency (CISA), ``Alert (TA16-288A): Heightened DDoS Threat Posed by Mirai and Other Botnets,'' Oct. 14, 2016. [Online]. Available: \href{https://www.cisa.gov/news-events/alerts/2016/10/14/heightened-ddos-threat-posed-mirai-and-other-botnets}{\nolinkurl{https://www.cisa.gov/news-events/alerts/2016/10/14/heightened-ddos-threat-posed-mirai-and-other-botnets}}. Accessed: Mar. 2026.
+
+\bibitem{statista_devices}
+Statista Research Department, ``Average number of devices and connections per capita,'' 2023. [Online]. Available: \href{https://www.statista.com/chart/32691/average-number-of-devices-and-connections-per-capita/}{\nolinkurl{https://www.statista.com/chart/32691/average-number-of-devices-and-connections-per-capita/}}. Accessed: Mar. 2026.
+
+\end{thebibliography}
+
+\end{document}

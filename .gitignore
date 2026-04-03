@@ -1,5 +1,11 @@
 .vagrant/
 *.log
 .tmp
+*.aux
+*.out
+*.toc
+*.fdb_latexmk
+*.fls
+*.synctex.gz
 docker-lab/results/*
 !docker-lab/results/.gitkeep
